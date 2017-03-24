@@ -1,6 +1,7 @@
 package path
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -48,6 +49,24 @@ func TestSkipSegment(t *testing.T) {
 	if skipped != 0 {
 		t.Errorf("skipSegment logic error")
 	}
+}
+
+func TestRegexpQuote(t *testing.T) {
+	s := "/aa/bb/c\\Ec"
+	result := RegexpQuote(s)
+	if result != `\Q/aa/bb/c\E\\E\Qc\E` {
+		t.Errorf("RegexpQuote logic error")
+	}
+}
+
+func TestMatchStrings(t *testing.T) {
+	pattern := "/aa/bb/cc/{ab}/{cd}"
+	str := "/aa/bb/cc/(.*)/(.*)"
+	stringMathcer := newStringMatcher(pattern, false)
+	uriTemplateVariables := map[string]string{}
+	result, _ := stringMathcer.MatchStrings(str, uriTemplateVariables)
+	fmt.Println(result)
+	fmt.Println(uriTemplateVariables)
 }
 
 func BenchmarkSkipSeparator(b *testing.B) {
