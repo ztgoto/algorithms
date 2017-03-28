@@ -61,12 +61,19 @@ func TestRegexpQuote(t *testing.T) {
 
 func TestMatchStrings(t *testing.T) {
 	pattern := "/aa/bb/cc/{ab}/{cd}"
-	str := "/aa/bb/cc/(.*)/(.*)"
+	str := "/aa/bb/cc/123/456"
 	stringMathcer := newStringMatcher(pattern, false)
 	uriTemplateVariables := map[string]string{}
 	result, _ := stringMathcer.MatchStrings(str, uriTemplateVariables)
 	fmt.Println(result)
 	fmt.Println(uriTemplateVariables)
+}
+
+func TestMatch(t *testing.T) {
+	pattern := "/aa/bb/**/*.jsp"
+	path := "/aa/bb/cc/ee/dd.jsp"
+	result := Match(pattern, path)
+	fmt.Println("TestMatch:", result)
 }
 
 func BenchmarkSkipSeparator(b *testing.B) {
@@ -80,5 +87,15 @@ func BenchmarkSkipSegment(b *testing.B) {
 	url := "/ab/bb/cc"
 	for i := 0; i < b.N; i++ {
 		skipSegment(url, 1, "abc")
+	}
+}
+
+func BenchmarkMatch(b *testing.B) {
+	b.StopTimer()
+	pattern := "/aa/bb/**/*.jsp"
+	path := "/aa/bb/cc/ee/dd.jsp"
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		Match(pattern, path)
 	}
 }

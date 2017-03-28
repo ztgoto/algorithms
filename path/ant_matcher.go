@@ -3,13 +3,12 @@ package path
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
 )
 
 var (
-	default_path_separator  string = "/"
+	path_separator          string = "/"
 	cache_turnoff_threshold int    = 65536
 	variable_pattern, _            = regexp.Compile(`\{[^/]+?\}`)
 	wildcard_chars          []rune = []rune{'*', '?', '{'}
@@ -17,60 +16,169 @@ var (
 	caseSensitive           bool   = true
 )
 
-// func Match(pattern, path string, fullMatch bool, uriTemplateVariables [string]string) bool {
-// 	if strings.HasPrefix(path, default_path_separator) != strings.HasPrefix(pattern, default_path_separator) {
-// 		return false
-// 	}
+func Match(pattern, path string) bool {
+	return DoMatch(pattern, path, true, nil)
+}
 
-// 	pattDirs := tokenizePattern(pattern)
+func DoMatch(pattern, path string, fullMatch bool, uriTemplateVariables map[string]string) bool {
+	if strings.HasPrefix(path, path_separator) != strings.HasPrefix(pattern, path_separator) {
+		return false
+	}
 
-// 	if fullMatch && caseSensitive && !isPotentialMatch(path, pattDirs) {
-// 		return false
-// 	}
+	pattDirs := tokenizePath(pattern, path_separator, trimTokens, true)
 
-// 	pathDirs := tokenizePath(path)
+	if fullMatch && caseSensitive && !isPotentialMatch(path, pattDirs) {
+		return false
+	}
 
-// 	pattIdxStart := 0
-// 	pattIdxEnd := len(pattDirs) - 1
-// 	pathIdxStart := 0
-// 	pathIdxEnd := len(pattDirs) - 1
+	pathDirs := tokenizePath(path, path_separator, trimTokens, true)
 
-// 	for pattIdxStart <= pattIdxEnd && pathIdxStart <= pathIdxEnd {
-// 		pattDir := pattDirs[pattIdxStart]
-// 		if "**" == pattDir {
-// 			break
-// 		}
-// 		if !matchStrings(pattDir, pathDirs[pathIdxStart], uriTemplateVariables) {
-// 			return false
-// 		}
-// 		pattIdxStart++
-// 		pathIdxStart++
-// 	}
+	pattIdxStart := 0
+	pattIdxEnd := len(pattDirs) - 1
+	pathIdxStart := 0
+	pathIdxEnd := len(pathDirs) - 1
 
-// 	if pathIdxStart > pathIdxEnd {
-// 			// Path is exhausted, only match if rest of pattern is * or **'s
-// 			if pattIdxStart > pattIdxEnd {
-// 				return (pattern.endsWith(this.pathSeparator) ? path.endsWith(this.pathSeparator) :
-// 						!path.endsWith(this.pathSeparator));
-// 			}
-// 			if (!fullMatch) {
-// 				return true;
-// 			}
-// 			if (pattIdxStart == pattIdxEnd && pattDirs[pattIdxStart].equals("*") && path.endsWith(this.pathSeparator)) {
-// 				return true;
-// 			}
-// 			for (int i = pattIdxStart; i <= pattIdxEnd; i++) {
-// 				if (!pattDirs[i].equals("**")) {
-// 					return false;
-// 				}
-// 			}
-// 			return true;
-// 		}
+	for pattIdxStart <= pattIdxEnd && pathIdxStart <= pathIdxEnd {
+		pattDir := pattDirs[pattIdxStart]
+		if "**" == pattDir {
+			break
+		}
+		if !matchStrings(pattDir, pathDirs[pathIdxStart], uriTemplateVariables) {
+			return false
+		}
+		pattIdxStart++
+		pathIdxStart++
+	}
 
-// }
+	if pathIdxStart > pathIdxEnd {
+		// Path is exhausted, only match if rest of pattern is * or **'s
+		if pattIdxStart > pattIdxEnd {
+			if strings.HasSuffix(pattern, path_separator) {
+				return strings.HasSuffix(path, path_separator)
+			} else {
+				return !strings.HasSuffix(path, path_separator)
+			}
 
-func tokenizePattern(pattern string) []string {
-	return strings.Split(pattern, default_path_separator)
+		}
+		if !fullMatch {
+			return true
+		}
+		if pattIdxStart == pattIdxEnd && pattDirs[pattIdxStart] == "*" && strings.HasSuffix(path, path_separator) {
+			return true
+		}
+		for i := pattIdxStart; i <= pattIdxEnd; i++ {
+			if !(pattDirs[i] == "**") {
+				return false
+			}
+		}
+		return true
+	} else if pattIdxStart > pattIdxEnd {
+		// String not exhausted, but pattern is. Failure.
+		return false
+	} else if !fullMatch && "**" == pattDirs[pattIdxStart] {
+		// Path start definitely matches due to "**" part in pattern.
+		return true
+	}
+
+	for pattIdxStart <= pattIdxEnd && pathIdxStart <= pathIdxEnd {
+		pattDir := pattDirs[pattIdxEnd]
+		if pattDir == "**" {
+			break
+		}
+		if !matchStrings(pattDir, pathDirs[pathIdxEnd], uriTemplateVariables) {
+			return false
+		}
+		pattIdxEnd--
+		pathIdxEnd--
+	}
+
+	if pathIdxStart > pathIdxEnd {
+		// String is exhausted
+		for i := pattIdxStart; i <= pattIdxEnd; i++ {
+			if !(pattDirs[i] == "**") {
+				return false
+			}
+		}
+		return true
+	}
+
+	for pattIdxStart != pattIdxEnd && pathIdxStart <= pathIdxEnd {
+		patIdxTmp := -1
+		for i := pattIdxStart + 1; i <= pattIdxEnd; i++ {
+			if pattDirs[i] == "**" {
+				patIdxTmp = i
+				break
+			}
+		}
+		if patIdxTmp == pattIdxStart+1 {
+			// '**/**' situation, so skip one
+			pattIdxStart++
+			continue
+		}
+		// Find the pattern between padIdxStart & padIdxTmp in str between
+		// strIdxStart & strIdxEnd
+		patLength := patIdxTmp - pattIdxStart - 1
+		strLength := pathIdxEnd - pathIdxStart + 1
+		foundIdx := -1
+
+	strLoop:
+		for i := 0; i <= strLength-patLength; i++ {
+			for j := 0; j < patLength; j++ {
+				subPat := pattDirs[pattIdxStart+j+1]
+				subStr := pathDirs[pathIdxStart+i+j]
+				if !matchStrings(subPat, subStr, uriTemplateVariables) {
+					continue strLoop
+				}
+			}
+			foundIdx = pathIdxStart + i
+			break
+		}
+
+		if foundIdx == -1 {
+			return false
+		}
+
+		pattIdxStart = patIdxTmp
+		pathIdxStart = foundIdx + patLength
+	}
+
+	for i := pattIdxStart; i <= pattIdxEnd; i++ {
+		if !(pattDirs[i] == "**") {
+			return false
+		}
+	}
+
+	return true
+
+}
+
+func matchStrings(pattern, str string, uriTemplateVariables map[string]string) bool {
+	stringMathcer := newStringMatcher(pattern, false)
+	result, _ := stringMathcer.MatchStrings(str, uriTemplateVariables)
+	return result
+}
+
+func tokenizePath(str, delimiters string, trimTokens, ignoreEmptyTokens bool) []string {
+
+	st := strings.Split(str, path_separator)
+
+	if !trimTokens && !ignoreEmptyTokens {
+		return st
+	}
+
+	data := make([]string, 0, len(st))
+	for _, v := range st {
+
+		if trimTokens {
+			v = strings.TrimSpace(v)
+		}
+
+		if !ignoreEmptyTokens || len(v) > 0 {
+			data = append(data, v)
+		}
+	}
+
+	return data
 }
 
 func isPotentialMatch(path string, pattDirs []string) bool {
@@ -79,7 +187,7 @@ func isPotentialMatch(path string, pattDirs []string) bool {
 		pos := 0
 
 		for _, pattDir := range pattDirs {
-			skipped := skipSeparator(path, pos, default_path_separator)
+			skipped := skipSeparator(path, pos, path_separator)
 			pos += skipped
 			skipped = skipSegment(path, pos, pattDir)
 			if skipped < len(pattDir) {
@@ -206,9 +314,6 @@ type AntPathStringMatcher struct {
 }
 
 func (this *AntPathStringMatcher) MatchStrings(str string, uriTemplateVariables map[string]string) (bool, error) {
-
-	fmt.Println(this.pattern.String())
-	fmt.Println(this.variableNames)
 
 	if this.pattern.MatchString(str) {
 		if uriTemplateVariables != nil {
